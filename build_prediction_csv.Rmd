@@ -1,0 +1,434 @@
+---
+title: "F1 Race Outcome Classification — Building prediction.csv"
+subtitle: "Implements decisions documented in README.md"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+
+
+SENTINEL <- -1L    # cold-start sentinel: no history available
+DATA_DIR <-""
+```
+
+## 1. Load raw tables
+
+```{r load-tables}
+races        <- fread(file.path(DATA_DIR, "races.csv"), na.strings = "\\N")
+results      <- fread(file.path(DATA_DIR, "results.csv"), na.strings = "\\N")
+drivers      <- fread(file.path(DATA_DIR, "drivers.csv"), na.strings = "\\N")
+constructors <- fread(file.path(DATA_DIR, "constructors.csv"), na.strings = "\\N")
+circuits     <- fread(file.path(DATA_DIR, "circuits.csv"), na.strings = "\\N")
+qualifying   <- fread(file.path(DATA_DIR, "qualifying.csv"), na.strings = "\\N")
+driver_st    <- fread(file.path(DATA_DIR, "driver_standings.csv"), na.strings = "\\N")
+constr_st    <- fread(file.path(DATA_DIR, "constructor_standings.csv"), na.strings = "\\N")
+```
+
+## 2. Basic type fixes
+
+**Critical**: all temporal logic below is driven by `date`, never by `raceId` or
+`round`. `raceId` is **not** globally date-monotonic (verified — see README
+Section 3.3, isolated to 2 pairs of races in 2021, likely a COVID-calendar
+artifact). Any `raceId <` comparison used as a stand-in for "past races" is
+unsafe for those rows.
+
+```{r type-fixes}
+races[, date := as.IDate(date)]
+drivers[, dob := as.IDate(dob)]
+
+# Bug found and fixed during testing: fread auto-detects `sprint_date` as an
+# IDate column (not character), because most values parse as dates. The
+# original check `sprint_date != ""` compares a Date to a string, which
+# returns NA even for rows where sprint_date IS a valid date -- this
+# silently produced 502 NAs in sprint_flag instead of 0s. is.na() alone is
+# correct and sufficient: no sprint session => NA in this column.
+races[, sprint_flag := as.integer(!is.na(sprint_date))]
+
+races_small <- races[, .(raceId, year, round, date, circuitId, sprint_flag)]
+```
+
+## 3. Target construction
+
+`podium` if `positionOrder <= 3`; `points` if `points > 0` and
+`positionOrder > 3`; `no_points` otherwise.
+
+```{r target}
+results[, target := fifelse(positionOrder <= 3, "podium",
+                     fifelse(points > 0, "points", "no_points"))]
+```
+
+## 4. Base table — rows to be classified (year >= 2021 only)
+
+**Important**: this year restriction applies only to which rows we predict.
+Source tables used below for historical feature computation are kept as
+**full history** (no year filter), to avoid an artificial cold-start at
+round 1 of 2021 for drivers who already had years of history before the
+window starts (README Section 5.4).
+
+```{r base-table}
+base <- results[, .(raceId, driverId, constructorId, grid, target)]
+base <- merge(base, races_small, by = "raceId")
+base <- base[year >= 2021]
+
+base <- merge(base, drivers[, .(driverId, dob, nationality)],
+              by = "driverId", all.x = TRUE)
+setnames(base, "nationality", "driver_nationality")
+base <- merge(base, constructors[, .(constructorId, nationality)],
+              by = "constructorId", all.x = TRUE)
+setnames(base, "nationality", "constructor_nationality")
+base <- merge(base, circuits[, .(circuitId, country)],
+              by = "circuitId", all.x = TRUE)
+setnames(base, "country", "circuit_country")
+
+# Data-quality gap found in the source data itself (not a pipeline bug):
+# raceId 1167 (2025 Qatar GP) has `grid` = NA for every driver in
+# results.csv. This is DIFFERENT from grid == 0, which legitimately means
+# "started from the pit lane". Use a distinct sentinel so the model does
+# not confuse "missing data" with "started from pit lane".
+base[is.na(grid), grid := SENTINEL]
+
+base[, driver_age := as.numeric(date - dob) / 365.25]
+base[, is_home_race := as.integer(driver_nationality == circuit_country)]
+base[, is_home_constructor_race := as.integer(constructor_nationality == circuit_country)]
+
+# qualifying position (pre-race, safe)
+quali_small <- qualifying[, .(raceId, driverId, qualifying_position = position)]
+base <- merge(base, quali_small, by = c("raceId", "driverId"), all.x = TRUE)
+# NA here means the driver has NO qualifying record at all for this race
+# (e.g. late replacement/reserve driver) -- not a NA within an existing
+# qualifying row. Same sentinel convention as everywhere else.
+base[is.na(qualifying_position), qualifying_position := SENTINEL]
+
+setorder(base, driverId, date)
+```
+
+## 5. Full-history reference tables (not restricted to 2021+)
+
+Used only as the "lookup side" of non-equi as-of joins.
+
+```{r full-history-tables}
+results_full <- merge(results[, .(raceId, driverId, constructorId, positionOrder,
+                                   points, statusId)],
+                       races_small, by = "raceId")
+setorder(results_full, driverId, date)
+
+driver_st_full <- merge(driver_st[, .(raceId, driverId, points, position)],
+                         races_small, by = "raceId")
+setnames(driver_st_full, c("points", "position"), c("std_points", "std_position"))
+setorder(driver_st_full, driverId, date)
+
+constr_st_full <- merge(constr_st[, .(raceId, constructorId, points, position)],
+                         races_small, by = "raceId")
+setnames(constr_st_full, c("points", "position"), c("std_points", "std_position"))
+setorder(constr_st_full, constructorId, date)
+```
+
+## 6. As-of join helper
+
+For each row in `target_dt` (with a `date` and a grouping key), find the last
+row in `source_dt` with the same key and date **strictly earlier**. Non-equi
+join on date, never on `raceId` (README 3.3) — the only safe method given the
+verified `raceId`/`date` ordering anomaly.
+
+```{r asof-helper}
+asof_join <- function(target_dt, source_dt, by_key, value_cols, suffix) {
+  source_dt <- copy(source_dt)
+  target_dt <- copy(target_dt)
+  setnames(source_dt, "date", "src_date")
+  res <- source_dt[target_dt, on = c(by_key, "src_date<date"),
+                    mult = "last",
+                    .SD, .SDcols = value_cols,
+                    by = .EACHI]
+  setnames(res, value_cols, paste0(suffix, "_", value_cols))
+  res
+}
+```
+
+## 7. Standings features — shifted to the previous race by date
+
+Note (README 3.4): `std_points` from `driver_standings` resets every season.
+The raw "previous race" value can therefore span a season boundary at round
+1 (previous season's final total). Kept as-is (documented, not a bug) and
+complemented with an explicit season-reset version.
+
+```{r standings-features}
+std_feats <- asof_join(base[, .(driverId, date)], driver_st_full,
+                        by_key = "driverId",
+                        value_cols = c("std_points", "std_position"),
+                        suffix = "driver_std_prev")
+base <- cbind(base, std_feats[, .(driver_std_prev_std_points, driver_std_prev_std_position)])
+setnames(base, c("driver_std_prev_std_points", "driver_std_prev_std_position"),
+         c("driver_std_points_prev", "driver_std_position_prev"))
+
+cstd_feats <- asof_join(base[, .(constructorId, date)], constr_st_full,
+                         by_key = "constructorId",
+                         value_cols = c("std_points", "std_position"),
+                         suffix = "constr_std_prev")
+base <- cbind(base, cstd_feats[, .(constr_std_prev_std_points, constr_std_prev_std_position)])
+setnames(base, c("constr_std_prev_std_points", "constr_std_prev_std_position"),
+         c("constructor_std_points_prev", "constructor_std_position_prev"))
+
+# Explicit season-reset feature: points scored so far THIS season only
+# (0 at round 1 by construction, unlike the raw shift above)
+driver_season_pts <- merge(results[, .(raceId, driverId, points)],
+                            races_small, by = "raceId")
+setorder(driver_season_pts, driverId, year, round)
+driver_season_pts[, points_this_season_prev := shift(cumsum(points), 1, fill = 0), by = .(driverId, year)]
+base <- merge(base, driver_season_pts[, .(raceId, driverId, points_this_season_prev)],
+              by = c("raceId", "driverId"), all.x = TRUE)
+
+# Sentinel for missing standings history (true cold start, e.g. rookie's first race)
+for (col in c("driver_std_points_prev", "driver_std_position_prev",
+              "constructor_std_points_prev", "constructor_std_position_prev")) {
+  base[is.na(get(col)), (col) := SENTINEL]
+}
+```
+
+## 8. Rolling driver and constructor form
+
+Three fixed windows (3/5/10), **not** a tunable hyperparameter. Rationale
+(README): tree models combine multiple windows non-linearly, capturing both
+"current form" and "general consistency" at once; treating the window size
+as a searched hyperparameter would require a custom transformer with access
+to full history beyond the CV fold's `X` matrix — an easy place to introduce
+a subtle bug that looks like leakage without being classic leakage.
+
+```{r driver-rolling}
+driver_hist <- copy(results_full)
+setorder(driver_hist, driverId, date)
+for (w in c(3, 5, 10)) {
+  driver_hist[, paste0("driver_avg_position_last", w) := {
+    n <- .N
+    sapply(seq_len(n), function(i) if (i == 1) NA_real_ else mean(positionOrder[max(1, i - w):(i - 1)]))
+  }, by = driverId]
+  driver_hist[, paste0("driver_podium_rate_last", w) := {
+    n <- .N
+    sapply(seq_len(n), function(i) if (i == 1) NA_real_ else mean(positionOrder[max(1, i - w):(i - 1)] <= 3))
+  }, by = driverId]
+  driver_hist[, paste0("driver_points_avg_last", w) := {
+    n <- .N
+    sapply(seq_len(n), function(i) if (i == 1) NA_real_ else mean(points[max(1, i - w):(i - 1)]))
+  }, by = driverId]
+}
+
+roll_cols <- grep("^driver_(avg_position|podium_rate|points_avg)_last", names(driver_hist), value = TRUE)
+base <- merge(base, driver_hist[, c("raceId", "driverId", roll_cols), with = FALSE],
+              by = c("raceId", "driverId"), all.x = TRUE)
+for (col in roll_cols) base[is.na(get(col)), (col) := SENTINEL]
+```
+
+**Bug found and fixed during testing** (constructor rolling): `results_full`
+has one row per (raceId, driverId) — i.e. **two** rows per (raceId,
+constructorId), one per teammate. Two separate problems if left as-is:
+
+1. **Row-multiplying merge**: merging `base` (one row per driver) against a
+   table keyed only on (raceId, constructorId) with two rows per key
+   silently doubled every row in `base` (verified: 2344 → 4686 rows, every
+   `raceId`+`driverId` duplicated).
+2. **Wrong window even before the merge**: computing the window by row
+   position within each `constructorId` counts teammates' rows as separate
+   steps, so the two drivers of the same team in the same race would get
+   *different* window values for what should be an identical team-level
+   number.
+
+Fix: collapse to one row per (raceId, constructorId) — team-level average
+across both cars — **before** computing the rolling window and before
+merging back (a many-to-one join, which cannot fan out).
+
+```{r constructor-rolling}
+constr_race_level <- results_full[, .(team_position = mean(positionOrder)),
+                                   by = .(raceId, constructorId, date)]
+setorder(constr_race_level, constructorId, date)
+for (w in c(3, 5)) {
+  constr_race_level[, paste0("constructor_avg_position_last", w) := {
+    n <- .N
+    sapply(seq_len(n), function(i) if (i == 1) NA_real_ else mean(team_position[max(1, i - w):(i - 1)]))
+  }, by = constructorId]
+}
+croll_cols <- grep("^constructor_avg_position_last", names(constr_race_level), value = TRUE)
+stopifnot(nrow(unique(constr_race_level[, .(raceId, constructorId)])) == nrow(constr_race_level))
+base <- merge(base, constr_race_level[, c("raceId", "constructorId", croll_cols), with = FALSE],
+              by = c("raceId", "constructorId"), all.x = TRUE)
+for (col in croll_cols) base[is.na(get(col)), (col) := SENTINEL]
+```
+
+## 9. Circuit history
+
+Full pre-2021 history usable here (README Section 5.4). Known limitation,
+not corrected in this version: `circuitId` does not account for layout
+changes at the same track over time.
+
+```{r circuit-history}
+circuit_hist <- copy(results_full)
+setorder(circuit_hist, driverId, circuitId, date)
+circuit_hist[, `:=`(
+  driver_wins_at_circuit = {
+    n <- .N
+    sapply(seq_len(n), function(i) if (i == 1) NA_real_ else sum(positionOrder[1:(i - 1)] == 1))
+  },
+  driver_avg_position_at_circuit = {
+    n <- .N
+    sapply(seq_len(n), function(i) if (i == 1) NA_real_ else mean(positionOrder[1:(i - 1)]))
+  }
+), by = .(driverId, circuitId)]
+
+base <- merge(base, circuit_hist[, .(raceId, driverId, driver_wins_at_circuit,
+                                      driver_avg_position_at_circuit)],
+              by = c("raceId", "driverId"), all.x = TRUE)
+for (col in c("driver_wins_at_circuit", "driver_avg_position_at_circuit")) {
+  base[is.na(get(col)), (col) := SENTINEL]
+}
+```
+
+## 10. Reliability — DNF rate
+
+Using raw `statusId` for now. **Open decision** (README 5.1): the
+`status.csv` macro-category mapping is not yet defined. Placeholder:
+`statusId == 1` means "Finished" in Ergast; everything else is treated as a
+rough DNF proxy until the mapping is decided.
+
+```{r dnf-rate}
+dnf_hist <- copy(results_full)
+setorder(dnf_hist, driverId, date)
+dnf_hist[, dnf_flag := as.integer(statusId != 1)]
+dnf_hist[, driver_dnf_rate_historical := {
+  n <- .N
+  sapply(seq_len(n), function(i) if (i == 1) NA_real_ else mean(dnf_flag[1:(i - 1)]))
+}, by = driverId]
+base <- merge(base, dnf_hist[, .(raceId, driverId, driver_dnf_rate_historical)],
+              by = c("raceId", "driverId"), all.x = TRUE)
+base[is.na(driver_dnf_rate_historical), driver_dnf_rate_historical := SENTINEL]
+```
+
+## 11. Points gap to championship leader
+
+```{r points-gap}
+leader_per_race <- driver_st_full[, .(leader_points = max(std_points, na.rm = TRUE)), by = raceId]
+leader_per_race <- merge(leader_per_race, races_small[, .(raceId, date)], by = "raceId")
+setorder(leader_per_race, date)
+
+base[, leader_points_prev := sapply(date, function(d) {
+  v <- leader_per_race[date < d, leader_points]
+  if (length(v) == 0) return(SENTINEL)
+  tail(v, 1)
+})]
+base[, points_gap_to_leader := fifelse(driver_std_points_prev == SENTINEL, SENTINEL,
+                                        leader_points_prev - driver_std_points_prev)]
+```
+
+## 12. Constructor change, days since last race, seasons in F1
+
+```{r simple-derived}
+setorder(base, driverId, date)
+base[, prev_constructorId := shift(constructorId, 1), by = driverId]
+base[, constructor_change_flag := as.integer(!is.na(prev_constructorId) & constructorId != prev_constructorId)]
+base[is.na(prev_constructorId), constructor_change_flag := SENTINEL]
+
+base[, prev_date := shift(date, 1), by = driverId]
+base[, days_since_last_race := as.numeric(date - prev_date)]
+base[is.na(days_since_last_race), days_since_last_race := SENTINEL]
+
+first_race_year <- results_full[, .(first_year = min(year)), by = driverId]
+base <- merge(base, first_race_year, by = "driverId", all.x = TRUE)
+base[, driver_seasons_in_f1 := year - first_year]
+```
+
+## 13. Teammate head-to-head
+
+Computed only over races where the same two drivers were teammates,
+restricted to dates strictly before the race being predicted. If a driver
+had multiple teammates across the training window, only history with the
+**current** (this-race) teammate counts.
+
+```{r teammate-h2h}
+same_race <- results_full[, .(raceId, driverId, constructorId, positionOrder)]
+teammate_pairs <- merge(same_race, same_race, by = c("raceId", "constructorId"),
+                         allow.cartesian = TRUE, suffixes = c("", ".tm"))
+teammate_pairs <- teammate_pairs[driverId != driverId.tm]
+setnames(teammate_pairs, c("driverId.tm", "positionOrder.tm"),
+         c("teammateId", "teammate_position"))
+teammate_pairs <- merge(teammate_pairs, races_small[, .(raceId, date)], by = "raceId")
+setnames(teammate_pairs, "positionOrder", "position")
+teammate_pairs[, position_delta := position - teammate_position]
+setorder(teammate_pairs, driverId, teammateId, date)
+
+# Step 1: identify the CURRENT teammate for each row in `base`.
+current_teammate <- teammate_pairs[, .(raceId, driverId, teammateId)]
+# A driver could in theory have >1 teammate in one race (3-car team);
+# keep the first deterministically -- known simplification, documented.
+current_teammate <- current_teammate[, .SD[1], by = .(raceId, driverId)]
+
+base <- merge(base, current_teammate, by = c("raceId", "driverId"), all.x = TRUE)
+
+# Step 2: for each (driverId, teammateId, date) in base, compute the mean
+# position_delta from teammate_pairs with the SAME pair and date < current date.
+base[, row_id := .I]
+pair_hist <- teammate_pairs[, .(driverId, teammateId, date, position_delta)]
+
+compute_h2h <- function(i) {
+  d   <- base$date[i]
+  did <- base$driverId[i]
+  tid <- base$teammateId[i]
+  if (is.na(tid)) return(NA_real_)
+  vals <- pair_hist[driverId == did & teammateId == tid & date < d, position_delta]
+  if (length(vals) == 0) return(NA_real_)
+  mean(vals)
+}
+base[, teammate_h2h_avg_position_delta := sapply(row_id, compute_h2h)]
+base[is.na(teammate_h2h_avg_position_delta), teammate_h2h_avg_position_delta := SENTINEL]
+base[, row_id := NULL]
+```
+
+## 14. Final column selection and CSV export
+
+```{r final-export}
+final_cols <- c(
+  "raceId", "driverId", "year", "round", "date",
+  "target",
+  "grid", "constructorId", "circuitId", "qualifying_position", "driver_age",
+  "driver_std_points_prev", "driver_std_position_prev",
+  "constructor_std_points_prev", "constructor_std_position_prev",
+  "points_this_season_prev",
+  paste0("driver_avg_position_last", c(3, 5, 10)),
+  paste0("driver_podium_rate_last", c(3, 5, 10)),
+  paste0("driver_points_avg_last", c(3, 5, 10)),
+  paste0("constructor_avg_position_last", c(3, 5)),
+  "driver_wins_at_circuit", "driver_avg_position_at_circuit",
+  "teammate_h2h_avg_position_delta",
+  "driver_dnf_rate_historical",
+  "points_gap_to_leader",
+  "constructor_change_flag",
+  "days_since_last_race",
+  "sprint_flag",
+  "driver_seasons_in_f1",
+  "is_home_race", "is_home_constructor_race"
+)
+
+prediction <- base[, ..final_cols]
+setorder(prediction, date, driverId)
+
+fwrite(prediction, "/mnt/user-data/outputs/prediction.csv")
+```
+
+## 15. Sanity checks
+
+Run every time the script executes — not optional, and not just for this
+first test. If any of these fail, something upstream broke silently.
+
+```{r sanity-checks}
+cat("Rows:", nrow(prediction), " Cols:", ncol(prediction), "\n")
+
+dup_check <- prediction[, .N, by = .(raceId, driverId)][N > 1]
+cat("Duplicated (raceId, driverId) pairs:", nrow(dup_check), "(must be 0)\n")
+
+na_counts <- sapply(prediction, function(x) sum(is.na(x)))
+cat("Columns with remaining NAs:", sum(na_counts > 0), "(must be 0)\n")
+
+cat("\nTarget distribution:\n")
+print(table(prediction$target))
+
+cat("\nSample rows:\n")
+print(head(prediction, 3))
+```
