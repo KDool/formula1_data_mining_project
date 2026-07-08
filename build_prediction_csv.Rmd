@@ -10,7 +10,7 @@ library(data.table)
 
 
 SENTINEL <- -1L    # cold-start sentinel: no history available
-DATA_DIR <-""
+DATA_DIR <-"./dataset/f1_history"
 ```
 
 ## 1. Load raw tables
@@ -409,7 +409,7 @@ final_cols <- c(
 prediction <- base[, ..final_cols]
 setorder(prediction, date, driverId)
 
-fwrite(prediction, "/mnt/user-data/outputs/prediction.csv")
+fwrite(prediction, "./dataset/outputs/prediction.csv")
 ```
 
 ## 15. Sanity checks
