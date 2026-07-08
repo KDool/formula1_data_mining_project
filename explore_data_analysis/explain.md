@@ -185,3 +185,89 @@ imbalanced, so evaluation should focus on class-aware metrics rather than raw
 accuracy. Correlated rolling features are useful for Random Forest, but they may
 need scaling, feature selection, or dimensionality reduction before training an
 SVM.
+
+## Suggested Modeling Approaches
+
+### Random Forest
+
+Random Forest is the strongest practical candidate for this dataset. The EDA
+shows that race outcome depends on several interacting signals: qualifying
+position, grid position, recent driver form, constructor strength, standings,
+DNF history, and teammate performance. These relationships are not purely
+linear. For example, a good teammate head-to-head value is more meaningful when
+the driver is also in a strong constructor and starts near the front.
+
+Random Forest is suitable because it can model these non-linear interactions
+without requiring manual feature combinations. It also handles skewed variables,
+sentinel values such as `-1`, and correlated rolling-window features better than
+SVM. The main limitation is interpretability: correlated features such as
+`grid` and `qualifying_position`, or `last3`, `last5`, and `last10` rolling
+features, can split importance across similar predictors.
+
+Suggested approach:
+
+```python
+RandomForestClassifier(
+    n_estimators=300,
+    class_weight="balanced",
+    random_state=42,
+    n_jobs=-1
+)
+```
+
+Use macro F1-score, balanced accuracy, and per-class recall to avoid hiding poor
+performance on the smaller `podium` class.
+
+### Decision Tree
+
+Decision Tree is useful as an interpretable baseline. The EDA shows that some
+features have strong direct separation, especially `qualifying_position`,
+`grid`, and recent average position. A tree can turn these patterns into simple
+rules, such as drivers starting near the front with strong recent form being
+more likely to finish on the podium.
+
+The main advantage is explainability. A shallow tree can be visualized and used
+to understand which features create the first major splits. The main weakness is
+overfitting. A deep tree can memorize race-specific patterns, especially because
+the dataset contains correlated features and an imbalanced target.
+
+Suggested approach:
+
+```python
+DecisionTreeClassifier(
+    max_depth=4,
+    class_weight="balanced",
+    random_state=42
+)
+```
+
+Use this model as a baseline and explanation tool. If performance is much lower
+than Random Forest, that is expected because a single tree has higher variance
+and less ability to average out noisy splits.
+
+### SVM
+
+SVM can be used as a comparison model, but it needs the most careful
+preprocessing. The EDA shows several challenges for SVM: feature scales are very
+different, `points_gap_to_leader` is heavily skewed, some columns use `-1` as a
+sentinel value, and many rolling-window features are highly correlated.
+
+An RBF-kernel SVM is more appropriate than a linear SVM because several useful
+signals are interaction-based. For example, teammate performance only becomes
+strongly meaningful when combined with constructor strength, grid position, and
+qualifying position. However, because SVM is distance-based, scaling is
+mandatory.
+
+Suggested approach:
+
+```python
+Pipeline([
+    ("scaler", RobustScaler()),
+    ("svm", SVC(kernel="rbf", class_weight="balanced"))
+])
+```
+
+Before training SVM, consider handling sentinel values explicitly, scaling all
+numeric features, and reducing redundant rolling-window features. SVM may be
+useful for comparison, but Random Forest is likely easier to train and more
+robust for this feature set.
