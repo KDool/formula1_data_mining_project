@@ -38,20 +38,27 @@
   "nested_cv_summary": {
     "outer_folds": 5,
     "inner_folds": 3,
-    "mean_macro_f1": 0.677,
-    "std_macro_f1": 0.0252,
-    "mean_balanced_acc": 0.6968,
-    "std_balanced_acc": 0.0277
+    "mean_macro_f1": 0.6704,
+    "std_macro_f1": 0.0118,
+    "mean_balanced_acc": 0.7033,
+    "std_balanced_acc": 0.0154
+  },
+  "final_search_summary": {
+    "search_method": "RandomizedSearchCV",
+    "n_iter": 80,
+    "scoring": "f1_macro",
+    "cv_folds": 3,
+    "best_cv_score": 0.6854
   },
   "final_hyperparameters": {
-    "bootstrap": true,
-    "criterion": "log_loss",
-    "max_depth": 6,
-    "max_features": "log2",
-    "max_samples": 0.75,
-    "min_samples_leaf": 8,
-    "min_samples_split": 2,
-    "n_estimators": 1000
+    "n_estimators": 300,
+    "min_samples_split": 5,
+    "min_samples_leaf": 4,
+    "max_samples": null,
+    "max_features": "sqrt",
+    "max_depth": 12,
+    "criterion": "gini",
+    "bootstrap": true
   },
   "fixed_model_settings": {
     "class_weight": "balanced",
