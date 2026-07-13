@@ -56,12 +56,10 @@
       "is_home_race",
       "is_home_constructor_race"
     ],
-    "excluded_feature_columns": [
-      "driver_avg_position_last5",
-      "driver_avg_position_last10",
-      "driver_points_avg_last5",
-      "driver_points_avg_last10",
-      "constructor_avg_position_last5"
-    ]
+    "excluded_feature_columns": [],
+    "holdout": {
+      "test_years": [2025],
+      "exclude_years": [2026]
+    }
   }
 }
