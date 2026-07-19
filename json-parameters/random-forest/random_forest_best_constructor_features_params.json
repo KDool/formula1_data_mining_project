@@ -1,0 +1,261 @@
+{
+  "dataset_path": "dataset/outputs/prediction.csv",
+  "year_filter": {
+    "start_year": null,
+    "end_year": null
+  },
+  "features_used": [
+    "grid",
+    "qualifying_position",
+    "driver_age",
+    "driver_std_points_prev",
+    "driver_std_position_prev",
+    "constructor_std_points_prev",
+    "constructor_std_position_prev",
+    "points_this_season_prev",
+    "driver_avg_position_last3",
+    "driver_podium_rate_last3",
+    "driver_podium_rate_last5",
+    "driver_podium_rate_last10",
+    "driver_points_avg_last3",
+    "constructor_avg_position_last3",
+    "constructor_avg_position_last5",
+    "constructor_avg_position_last10",
+    "constructor_points_avg_last3",
+    "constructor_points_avg_last5",
+    "constructor_points_avg_last10",
+    "constructor_points_rate_last3",
+    "constructor_points_rate_last5",
+    "constructor_points_rate_last10",
+    "constructor_podium_rate_last3",
+    "constructor_podium_rate_last5",
+    "constructor_podium_rate_last10",
+    "constructor_double_points_rate_last3",
+    "constructor_double_points_rate_last5",
+    "constructor_double_points_rate_last10",
+    "constructor_avg_qualifying_position_last3",
+    "constructor_avg_qualifying_position_last5",
+    "constructor_avg_qualifying_position_last10",
+    "constructor_points_avg_delta_last3_vs_last10",
+    "constructor_avg_position_delta_last3_vs_last10",
+    "constructor_qualifying_delta_last3_vs_last10",
+    "driver_wins_at_circuit",
+    "driver_avg_position_at_circuit",
+    "teammate_h2h_avg_position_delta",
+    "driver_dnf_rate_historical",
+    "points_gap_to_leader",
+    "constructor_change_flag",
+    "days_since_last_race",
+    "sprint_flag",
+    "driver_seasons_in_f1",
+    "is_home_race",
+    "is_home_constructor_race"
+  ],
+  "raw_features_used": [
+    "grid",
+    "qualifying_position",
+    "driver_age",
+    "driver_std_points_prev",
+    "driver_std_position_prev",
+    "constructor_std_points_prev",
+    "constructor_std_position_prev",
+    "points_this_season_prev",
+    "driver_avg_position_last3",
+    "driver_podium_rate_last3",
+    "driver_podium_rate_last5",
+    "driver_podium_rate_last10",
+    "driver_points_avg_last3",
+    "constructor_avg_position_last3",
+    "constructor_avg_position_last5",
+    "constructor_avg_position_last10",
+    "constructor_points_avg_last3",
+    "constructor_points_avg_last5",
+    "constructor_points_avg_last10",
+    "constructor_points_rate_last3",
+    "constructor_points_rate_last5",
+    "constructor_points_rate_last10",
+    "constructor_podium_rate_last3",
+    "constructor_podium_rate_last5",
+    "constructor_podium_rate_last10",
+    "constructor_double_points_rate_last3",
+    "constructor_double_points_rate_last5",
+    "constructor_double_points_rate_last10",
+    "constructor_avg_qualifying_position_last3",
+    "constructor_avg_qualifying_position_last5",
+    "constructor_avg_qualifying_position_last10",
+    "constructor_points_avg_delta_last3_vs_last10",
+    "constructor_avg_position_delta_last3_vs_last10",
+    "constructor_qualifying_delta_last3_vs_last10",
+    "driver_wins_at_circuit",
+    "driver_avg_position_at_circuit",
+    "teammate_h2h_avg_position_delta",
+    "driver_dnf_rate_historical",
+    "points_gap_to_leader",
+    "constructor_change_flag",
+    "days_since_last_race",
+    "sprint_flag",
+    "driver_seasons_in_f1",
+    "is_home_race",
+    "is_home_constructor_race"
+  ],
+  "categorical_features_encoded": [],
+  "features_excluded": [
+    "constructorId",
+    "circuitId"
+  ],
+  "holdout_split": {
+    "train_development_years": [
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "holdout_test_years": [
+      2025
+    ],
+    "excluded_years": [
+      2026
+    ],
+    "train_development_rows": 1799,
+    "holdout_test_rows": 479,
+    "train_development_races": 90,
+    "holdout_test_races": 24
+  },
+  "nested_cv_summary": {
+    "outer_folds": 5,
+    "inner_folds": 3,
+    "mean_macro_f1": 0.6875,
+    "std_macro_f1": 0.0209,
+    "mean_balanced_acc": 0.7131,
+    "std_balanced_acc": 0.0275
+  },
+  "final_search_summary": {
+    "search_method": "RandomizedSearchCV",
+    "n_iter": 40,
+    "scoring": "f1_macro",
+    "cv_folds": 3,
+    "best_cv_score": 0.6856
+  },
+  "threshold_adjustment": {
+    "enabled": false,
+    "best_multipliers": {
+      "no_points": 1.0,
+      "podium": 1.0,
+      "points": 1.0
+    },
+    "top_candidates": []
+  },
+  "default_holdout_metrics_before_threshold": {
+    "accuracy": 0.6681,
+    "balanced_accuracy": 0.6949,
+    "macro_f1": 0.6689,
+    "weighted_f1": 0.6664
+  },
+  "final_holdout_metrics": {
+    "accuracy": 0.6681,
+    "balanced_accuracy": 0.6949,
+    "macro_precision": 0.6524,
+    "macro_recall": 0.6949,
+    "macro_f1": 0.6689,
+    "weighted_precision": 0.6697,
+    "weighted_recall": 0.6681,
+    "weighted_f1": 0.6664,
+    "matthews_corrcoef": 0.465,
+    "cohen_kappa": 0.4637
+  },
+  "final_holdout_per_label_metrics": {
+    "podium": {
+      "precision": 0.6489,
+      "recall": 0.8472,
+      "f1_score": 0.7349,
+      "support": 72
+    },
+    "points": {
+      "precision": 0.5438,
+      "recall": 0.5179,
+      "f1_score": 0.5305,
+      "support": 168
+    },
+    "no_points": {
+      "precision": 0.7644,
+      "recall": 0.7197,
+      "f1_score": 0.7414,
+      "support": 239
+    }
+  },
+  "final_holdout_classification_report": {
+    "podium": {
+      "precision": 0.648936170212766,
+      "recall": 0.8472222222222222,
+      "f1-score": 0.7349397590361446,
+      "support": 72.0
+    },
+    "points": {
+      "precision": 0.54375,
+      "recall": 0.5178571428571429,
+      "f1-score": 0.5304878048780488,
+      "support": 168.0
+    },
+    "no_points": {
+      "precision": 0.7644444444444445,
+      "recall": 0.7196652719665272,
+      "f1-score": 0.7413793103448276,
+      "support": 239.0
+    },
+    "accuracy": 0.6680584551148225,
+    "macro avg": {
+      "precision": 0.6523768715524034,
+      "recall": 0.6949148790152974,
+      "f1-score": 0.6689356247530069,
+      "support": 479.0
+    },
+    "weighted avg": {
+      "precision": 0.6696777170721113,
+      "recall": 0.6680584551148225,
+      "f1-score": 0.6664452380846104,
+      "support": 479.0
+    }
+  },
+  "final_holdout_confusion_matrix": {
+    "labels": [
+      "podium",
+      "points",
+      "no_points"
+    ],
+    "matrix": [
+      [
+        61,
+        10,
+        1
+      ],
+      [
+        29,
+        87,
+        52
+      ],
+      [
+        4,
+        63,
+        172
+      ]
+    ]
+  },
+  "final_hyperparameters": {
+    "resampling_strategy": null,
+    "resampling_ratio": 1.0,
+    "n_estimators": 500,
+    "min_samples_split": 10,
+    "min_samples_leaf": 4,
+    "max_samples": 0.6,
+    "max_features": 0.4,
+    "max_depth": null,
+    "criterion": "log_loss",
+    "class_weight": "balanced",
+    "bootstrap": true
+  },
+  "model_path": "models_training/random-forest/rf_final_model_constructor_features.joblib",
+  "fixed_model_settings": {
+    "class_weight": null,
+    "random_state": 42
+  }
+}
