@@ -1,0 +1,38 @@
+Holdout classification report:
+              precision    recall  f1-score   support
+
+      podium     0.6667    0.8889    0.7619        72
+      points     0.6062    0.5774    0.5915       168
+   no_points     0.7982    0.7448    0.7706       239
+
+    accuracy                         0.7077       479
+   macro avg     0.6904    0.7370    0.7080       479
+weighted avg     0.7111    0.7077    0.7064       479
+
+
+  "features_used": [
+    "grid",
+    "qualifying_position",
+    "driver_age",
+    "driver_std_points_prev",
+    "driver_std_position_prev",
+    "constructor_std_points_prev",
+    "constructor_std_position_prev",
+    "points_this_season_prev",
+    "driver_avg_position_last3",
+    "driver_podium_rate_last3",
+    "driver_podium_rate_last5",
+    "driver_podium_rate_last10",
+    "driver_points_avg_last3",
+    "constructor_avg_position_last3",
+    "driver_wins_at_circuit",
+    "driver_avg_position_at_circuit",
+    "teammate_h2h_avg_position_delta",
+    "driver_dnf_rate_historical",
+    "points_gap_to_leader",
+    "constructor_change_flag",
+    "days_since_last_race",
+    "sprint_flag",
+    "driver_seasons_in_f1",
+    "is_home_race",
+    "is_home_constructor_race"

@@ -10,6 +10,7 @@ library(data.table)
 
 
 SENTINEL <- -1L    # cold-start sentinel: no history available
+POINTS_CUTOFF_POSITION <- 10L
 DATA_DIR <-"./dataset/f1_history"
 ```
 
@@ -100,6 +101,13 @@ base <- merge(base, quali_small, by = c("raceId", "driverId"), all.x = TRUE)
 # (e.g. late replacement/reserve driver) -- not a NA within an existing
 # qualifying row. Same sentinel convention as everywhere else.
 base[is.na(qualifying_position), qualifying_position := SENTINEL]
+
+base[, grid_to_points_cutoff_delta :=
+       fifelse(grid == SENTINEL, SENTINEL, grid - POINTS_CUTOFF_POSITION)]
+base[, qualifying_to_points_cutoff_delta :=
+       fifelse(qualifying_position == SENTINEL,
+               SENTINEL,
+               qualifying_position - POINTS_CUTOFF_POSITION)]
 
 setorder(base, driverId, date)
 ```
@@ -238,16 +246,23 @@ across both cars — **before** computing the rolling window and before
 merging back (a many-to-one join, which cannot fan out).
 
 ```{r constructor-rolling}
-constr_race_level <- results_full[, .(team_position = mean(positionOrder)),
-                                   by = .(raceId, constructorId, date)]
+constr_race_level <- results_full[, .(
+  team_position = mean(positionOrder)
+), by = .(raceId, constructorId, date)]
+
 setorder(constr_race_level, constructorId, date)
-for (w in c(3, 5)) {
+for (w in c(3, 5, 10)) {
   constr_race_level[, paste0("constructor_avg_position_last", w) := {
     n <- .N
     sapply(seq_len(n), function(i) if (i == 1) NA_real_ else mean(team_position[max(1, i - w):(i - 1)]))
   }, by = constructorId]
 }
-croll_cols <- grep("^constructor_avg_position_last", names(constr_race_level), value = TRUE)
+
+croll_cols <- grep(
+  "^constructor_avg_position_last",
+  names(constr_race_level),
+  value = TRUE
+)
 stopifnot(nrow(unique(constr_race_level[, .(raceId, constructorId)])) == nrow(constr_race_level))
 base <- merge(base, constr_race_level[, c("raceId", "constructorId", croll_cols), with = FALSE],
               by = c("raceId", "constructorId"), all.x = TRUE)
@@ -388,13 +403,14 @@ final_cols <- c(
   "raceId", "driverId", "year", "round", "date",
   "target",
   "grid", "constructorId", "circuitId", "qualifying_position", "driver_age",
+  "grid_to_points_cutoff_delta", "qualifying_to_points_cutoff_delta",
   "driver_std_points_prev", "driver_std_position_prev",
   "constructor_std_points_prev", "constructor_std_position_prev",
   "points_this_season_prev",
   paste0("driver_avg_position_last", c(3, 5, 10)),
   paste0("driver_podium_rate_last", c(3, 5, 10)),
   paste0("driver_points_avg_last", c(3, 5, 10)),
-  paste0("constructor_avg_position_last", c(3, 5)),
+  paste0("constructor_avg_position_last", c(3, 5, 10)),
   "driver_wins_at_circuit", "driver_avg_position_at_circuit",
   "teammate_h2h_avg_position_delta",
   "driver_dnf_rate_historical",
