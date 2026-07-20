@@ -402,10 +402,25 @@ Use the 2021+ dataset for the main RF setup.
 
 ### 6. Resampling / Oversampling
 
+Artifact:
+
+```text
+json-parameters/random-forest/random_forest_best_resampling_evidence_params.json
+```
+
 Change:
 
 - Tested resampling strategies to address class imbalance.
 - Motivation was to improve the weaker middle class, `points`.
+- Added a dedicated evidence notebook:
+
+```text
+models_training/random-forest/random_forest_resampling_nested_cv.ipynb
+```
+
+- The notebook used a custom `OversampledRandomForestClassifier` so that
+  oversampling happened only inside each training fold. Validation folds and the
+  final 2025 holdout were never oversampled.
 
 Reason:
 
@@ -418,16 +433,93 @@ no_points > points > podium
 - `points` is the hardest class because it sits between `podium` and
   `no_points`.
 
+Search space:
+
+```text
+resampling_strategy: none / minority / not_majority
+resampling_ratio:    0.5 / 0.75 / 1.0
+class_weight:        null / balanced
+```
+
 Observed result:
 
 - Resampling did not improve holdout performance.
-- It changed class behavior but did not improve overall macro F1.
+- The best selected configuration used no oversampling:
+
+```json
+{
+  "resampling_strategy": "none",
+  "resampling_ratio": 0.5,
+  "class_weight": null,
+  "n_estimators": 500,
+  "min_samples_split": 20,
+  "min_samples_leaf": 1,
+  "max_samples": 0.75,
+  "max_features": 0.3,
+  "max_depth": null,
+  "criterion": "gini",
+  "bootstrap": true
+}
+```
+
+Overall holdout comparison:
+
+| metric | baseline RF | resampling run | change |
+|---|---:|---:|---:|
+| accuracy | 0.7077 | 0.6806 | -0.0271 |
+| balanced accuracy | 0.7370 | 0.6859 | -0.0511 |
+| macro F1 | 0.7080 | 0.6788 | -0.0292 |
+| weighted F1 | 0.7064 | 0.6763 | -0.0301 |
+| Matthews corrcoef | 0.5307 | 0.4721 | -0.0586 |
+| Cohen kappa | 0.5289 | 0.4711 | -0.0578 |
+
+Nested CV comparison:
+
+| metric | baseline RF | resampling run |
+|---|---:|---:|
+| mean macro F1 | 0.6898 | 0.6795 |
+| std macro F1 | 0.0187 | 0.0227 |
+| mean balanced accuracy | 0.7143 | 0.6957 |
+| std balanced accuracy | 0.0150 | 0.0231 |
+
+Per-class holdout F1:
+
+| class | baseline RF | resampling run | change |
+|---|---:|---:|---:|
+| podium | 0.7619 | 0.7467 | -0.0152 |
+| points | 0.5915 | 0.5363 | -0.0552 |
+| no_points | 0.7706 | 0.7536 | -0.0170 |
+
+Resampling confusion matrix:
+
+```text
+labels: podium, points, no_points
+
+[[ 56,  13,   3],
+ [ 19,  85,  64],
+ [  3,  51, 185]]
+```
+
+The largest degradation was in the `points` class:
+
+```text
+baseline true points predicted correctly:   97
+resampling true points predicted correctly: 85
+```
+
+The resampling run also increased `points -> no_points` errors:
+
+```text
+baseline:   44
+resampling: 64
+```
 
 Decision:
 
 ```text
 Do not keep resampling as the RF default.
-Use class_weight = "balanced" instead.
+The evidence run selected resampling_strategy = "none" and still performed
+worse than the confirmed RF baseline.
 ```
 
 ### 7. Probability Threshold Adjustment
