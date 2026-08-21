@@ -209,5 +209,5 @@
     "svc__C": 100.0,
     "scaler": "RobustScaler"
   },
-  "model_path": "/Users/khaido/Pisa/Data Mining/project/formula1_data_mining_project/models_training/svm/svm_final_model.joblib"
+  "model_path": "C:\\Users\\pietr\\PycharmProjects\\formula1_data_mining_project\\models_training\\svm\\svm_final_model.joblib"
 }

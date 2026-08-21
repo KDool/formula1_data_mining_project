@@ -1,0 +1,22 @@
+{
+  "data_path": "C:/Users/pietr/PycharmProjects/formula1_data_mining_project/models_training/prediction.csv",
+  "output_dir": "C:/Users/pietr/PycharmProjects/formula1_data_mining_project/models_training",
+
+  "train_year_min": 2021,
+  "train_year_max": 2024,
+  "test_year": 2025,
+  "walk_forward_validation_years": [2022, 2023, 2024],
+
+  "random_state": 42,
+
+  "svm_param_grid": {
+    "C": [0.0001, 0.001, 0.01, 0.1, 1, 10, 100],
+    "kernel": ["rbf", "linear"],
+    "gamma": ["scale", "auto"]
+  },
+  "svm_max_iter": 10000,
+
+  "shap_background_size": 30,
+  "shap_n_explain": 60,
+  "shap_nsamples": 100
+}
