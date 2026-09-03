@@ -27,22 +27,14 @@
     "svc__kernel": [
       "rbf"
     ],
-    "svc__class_weight": [
-      null,
-      "balanced",
-      {
-        "points": 1.1
-      },
-      {
-        "points": 1.2
-      },
-      {
-        "points": 1.35
-      },
-      {
-        "points": 1.5
-      }
-    ]
+  "svc__class_weight": [
+  null,
+  "balanced",
+  {"points": 1.1},
+  {"points": 1.2},
+  {"points": 1.35},
+  {"points": 1.5}
+]
   },
   "search": {
     "n_iter": 80,
