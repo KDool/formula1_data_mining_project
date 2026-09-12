@@ -218,32 +218,6 @@ RandomForestClassifier(
 Use macro F1-score, balanced accuracy, and per-class recall to avoid hiding poor
 performance on the smaller `podium` class.
 
-### Decision Tree
-
-Decision Tree is useful as an interpretable baseline. The EDA shows that some
-features have strong direct separation, especially `qualifying_position`,
-`grid`, and recent average position. A tree can turn these patterns into simple
-rules, such as drivers starting near the front with strong recent form being
-more likely to finish on the podium.
-
-The main advantage is explainability. A shallow tree can be visualized and used
-to understand which features create the first major splits. The main weakness is
-overfitting. A deep tree can memorize race-specific patterns, especially because
-the dataset contains correlated features and an imbalanced target.
-
-Suggested approach:
-
-```python
-DecisionTreeClassifier(
-    max_depth=4,
-    class_weight="balanced",
-    random_state=42
-)
-```
-
-Use this model as a baseline and explanation tool. If performance is much lower
-than Random Forest, that is expected because a single tree has higher variance
-and less ability to average out noisy splits.
 
 ### SVM
 
