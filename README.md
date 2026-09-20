@@ -1,13 +1,70 @@
-# formula1_data_mining_project
-A Data Mining & Machine Learning Project
+# Formula 1 Data Mining Project
 
-This project focuses on applying Machine Learning and Data Mining techniques to historical Formula 1 data in order to extract predictive insights and strategic patterns.
+A Data Mining & Machine Learning project that applies classification techniques to historical Formula 1 data in order to extract predictive insights and strategic patterns from race results.
 
-In particular, the project aims to develop a three-class classification model that labels each driver race result as podium, points finish, or no points finish, based on factors such as track characteristics, weather conditions, driver statistics, team performance, and previous results.
+## Purpose
+
+The goal of the project is to predict a driver's race outcome using a **three-class classification model**:
+
+| Class | Meaning |
+|---|---|
+| `podium` | Driver finishes in the top 3 |
+| `points` | Driver finishes in a points-paying position (outside the podium) |
+| `no_points` | Driver finishes outside the points |
+
+Predictions are based on pre-race and historical signals such as grid/qualifying position, driver age, recent form (rolling average position, podium rate, points over the last 3/5/10 races), constructor strength and standings, teammate head-to-head performance, DNF history, championship gap to the leader, and circuit-specific driver history. The dataset is notably imbalanced (`no_points` is the majority class, `podium` the minority), so the project emphasizes macro-F1, balanced accuracy, and per-class recall over raw accuracy.
+
+## Dataset
+
+The project uses historical Formula 1 data (races from **1950 to 2026**) stored under [dataset/f1_history/](dataset/f1_history/), including:
+- `races.csv`, `results.csv`, `sprint_results.csv`
+- `drivers.csv`, `constructors.csv`
+- `driver_standings.csv`, `constructor_standings.csv`, `constructor_results.csv`
+- `qualifying.csv`, `lap_times.csv`, `pit_stops.csv`, `circuits.csv`, `seasons.csv`, `status.csv`
+
+These raw tables are engineered into a single modeling table, [dataset/outputs/prediction.csv](dataset/outputs/prediction.csv), built by [dataset/outputs/build_prediction_csv.ipynb](dataset/outputs/build_prediction_csv.ipynb). Each row is one driver-race entry with the engineered features listed above plus the `target` label. Exploratory analysis of this table (class balance, feature distributions, separability, correlations, baseline feature importance) is documented in [explore_data_analysis/f1_eda.ipynb](explore_data_analysis/f1_eda.ipynb) and summarized in [explore_data_analysis/explain.md](explore_data_analysis/explain.md).
+
+## Environment Setup
+
+Requires Python 3 with the packages listed in [requirements.txt](requirements.txt):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Dependencies: `pandas`, `numpy`, `matplotlib`, `seaborn`, `scikit-learn`, `jupyter`, `ipykernel`, `shap`.
+
+Notebooks (`.ipynb`) can then be run via Jupyter (`jupyter notebook` / `jupyter lab`) or from an editor with Jupyter/ipykernel support.
+
+## Models
+
+Two classifiers were trained and evaluated under the same nested cross-validation setup (race-level `TimeSeriesSplit`, 5 outer folds), using the same 12 aligned features and identical cold-start handling, for a fair comparison:
+
+- **Random Forest** — [models_training/random-forest/random_forest_nested_cv.ipynb](models_training/random-forest/random_forest_nested_cv.ipynb), final model saved as `rf_final_model.joblib`.
+- **SVM (RBF kernel)** — [models_training/svm/svm_nested_cv_optimization.ipynb](models_training/svm/svm_nested_cv_optimization.ipynb), final model saved as `svm_final_model.joblib`.
+
+Hyperparameter search spaces and best-found parameters for each model are stored in [json-parameters/](json-parameters/) (`random-forest/`, `svm/`). Class-imbalance handling strategies (e.g. `class_weight="balanced"` vs. oversampling) were compared in [models_training/imbalance_strategy_nestedcv.ipynb](models_training/imbalance_strategy_nestedcv.ipynb). Model explainability was assessed with SHAP in [models_evaluation/svm_shap_explainability.ipynb](models_evaluation/svm_shap_explainability.ipynb), with per-feature importance exported to [models_evaluation/outputs/](models_evaluation/outputs/).
+
+## Results
+
+Comparing macro-F1 across the 5 nested-CV outer folds and on a true holdout set (2025 season):
+
+| Model | Nested-CV mean macro-F1 | 2025 holdout macro-F1 |
+|---|---|---|
+| Random Forest | **0.697** | 0.667 |
+| SVM (RBF) | 0.675 | **0.682** |
+
+A Wilcoxon signed-rank test on the paired fold scores gives **p = 0.625**, indicating the difference between the two models is **not statistically significant** — both approaches perform comparably overall. Random Forest is slightly more consistent across folds, while SVM edges ahead on the held-out 2025 season. See [graphics/model_comparison_aligned.png](graphics/model_comparison_aligned.png) (generated by [graphics/comparison.py](graphics/comparison.py)) for the full fold-by-fold comparison.
+
+Feature-importance analysis (both baseline Random Forest importances and SHAP values) consistently highlights grid/qualifying position, recent driver form (rolling average position and points), and constructor strength as the strongest predictors, while teammate head-to-head delta and circuit-specific history contribute secondary, non-linear signal — see [explore_data_analysis/explain.md](explore_data_analysis/explain.md) and [models_evaluation/outputs/](models_evaluation/outputs/) for details.
 
 ## Project Structure
-- `dataset/` – stores raw and prepared Formula 1 data used for analysis and modeling.
-- `explore_data_analysis/` – contains exploratory data analysis notebooks, visualizations, and scripts for understanding feature relationships.
-- `json-parameters/` – stores JSON configuration files and experiment parameter sets for training and evaluation.
-- `models_training/` – holds training scripts, model definitions, and workflows for building predictive models.
-- `models_evaluation/` – contains evaluation reports, metrics, comparison results, and visualization scripts for assessing model performance.
+
+- [dataset/](dataset/) – raw historical F1 data and the engineered modeling table (`prediction.csv`).
+- [explore_data_analysis/](explore_data_analysis/) – EDA notebooks, plots, and written analysis of feature relationships and class imbalance.
+- [json-parameters/](json-parameters/) – hyperparameter search spaces and best-found parameters per model.
+- [models_training/](models_training/) – training notebooks, nested-CV optimization, imbalance-strategy comparison, and saved final models.
+- [models_evaluation/](models_evaluation/) – SHAP-based explainability notebook and exported feature-importance outputs.
+- [graphics/](graphics/) – scripts and figures comparing model performance and feature distributions.
